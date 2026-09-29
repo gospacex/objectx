@@ -1,0 +1,11 @@
+objectx:
+  standalone:
+    - driver: minio
+      name: default
+      endpoint: "localhost:9000"
+      access_key: "minioadmin"
+      secret_key: "minioadmin123"
+      bucket: "test-bucket"
+      use_ssl: false
+      max_upload_size: 104857600
+      presigned_expiry: 24h

@@ -1,0 +1,11 @@
+objectx:
+  standalone:
+    - driver: tencentcos
+      name: default
+      endpoint: "https://<bucket-name-appid>.cos.<region>.myqcloud.com"
+      access_key: "YOUR_TENCENTCOS_SECRET_ID"
+      secret_key: "YOUR_TENCENTCOS_SECRET_KEY"
+      bucket: "bucket-name-appid"
+      use_ssl: true
+      max_upload_size: 104857600
+      presigned_expiry: 24h

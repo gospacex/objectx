@@ -1,0 +1,11 @@
+objectx:
+  standalone:
+    - driver: aliyunoss
+      name: default
+      endpoint: "oss-cn-hangzhou.aliyuncs.com"
+      access_key: "YOUR_ALIYUN_ACCESS_KEY_ID"
+      secret_key: "YOUR_ALIYUN_ACCESS_KEY_SECRET"
+      bucket: "your-bucket-name"
+      use_ssl: true
+      max_upload_size: 104857600
+      presigned_expiry: 24h

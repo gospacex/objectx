@@ -1,0 +1,11 @@
+objectx:
+  standalone:
+    - driver: rustfs
+      name: default
+      endpoint: "localhost:9010"
+      access_key: "rustfsadmin"
+      secret_key: "rustfsadmin"
+      bucket: "test-bucket"
+      use_ssl: false
+      max_upload_size: 104857600
+      presigned_expiry: 24h
