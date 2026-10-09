@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -136,4 +137,36 @@ func TestPutOptions(t *testing.T) {
 	if onlyCT.Metadata != nil {
 		t.Fatalf("Metadata = %v after only WithContentType, want nil", onlyCT.Metadata)
 	}
+}
+
+// TestFactoryConcurrentAccess 钉住 creators map 的并发安全性。
+//
+// 与 coordx / lockx / vectorx 同源缺陷：REVIEW-REPORT.md 第二优先级第 6 条
+// 要求所有 factory map 加 sync.RWMutex，但第八节已修复清单只覆盖了
+// mqx/kvx/searchx，coordx/lockx/vectorx 是上轮补的，objectx 是最后一个漏网的。
+// 未加锁时并发注册 + 并发查找会触发
+// "fatal error: concurrent map read and map write"（不可 recover，直接挂进程）。
+//
+// 读写两端都必须走受保护的 API（RegisterCreator / New）。
+// ⚠️ 不要在测试里直接读 creators 裸 map：那样会绕过 creatorsMu，
+// 测到的就不是修复后的路径，用例会永远红且无法反映真实修复效果。
+func TestFactoryConcurrentAccess(t *testing.T) {
+	const n = 32
+	var wg sync.WaitGroup
+	wg.Add(n * 2)
+
+	for i := 0; i < n; i++ {
+		drv := "concurrent-objectx-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+		go func(d string) {
+			defer wg.Done()
+			RegisterCreator(d, func(*Config) (BucketClient, error) { return stubBucketClient{}, nil })
+		}(drv)
+
+		// 命中与否都允许（注册与查找并发，顺序不定），只要不 panic / 不 race
+		go func(d string) {
+			defer wg.Done()
+			_, _ = New(&Config{Driver: d})
+		}(drv)
+	}
+	wg.Wait()
 }
