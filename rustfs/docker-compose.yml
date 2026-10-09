@@ -1,0 +1,38 @@
+# objectx/rustfs（RustFS S3） - 独立开发环境
+# 用法：scripts/start.sh / scripts/verify.sh / scripts/stop.sh
+# 服务定义与 objectx/docker-compose.yml 中对应段一致，只改了容器名与网络名前缀，
+# 避免与根 compose（一次起全套）重名冲突。
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    cpus: "0.5"
+    container_name: hubx-objectx-rustfs
+    ports:
+      - "${HOST_PORT:-9010}:9000"   # S3 API + Console
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+    volumes:
+      - ./data/rustfs/data:/data
+    # RustFS 无独立健康端点，/ 返回 403(需认证) 即证明 S3 API 存活
+    healthcheck:
+      test: ["CMD-SHELL", "code=$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/); test \"$$code\" -ge 400 -a \"$$code\" -lt 500"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    mem_limit: 256m
+    restart: unless-stopped
+    logging: *default-logging
+
+networks:
+  default:
+    name: hubx-objectx-rustfs-net
+    driver: bridge
