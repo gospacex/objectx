@@ -167,9 +167,53 @@ func (c *ClientImpl) Exists(ctx context.Context, bucket, key string) (bool, erro
 	return true, nil
 }
 
-func (c *ClientImpl) HealthCheck() error { return nil }
-func (c *ClientImpl) Close() error       { return nil }
-func (c *ClientImpl) Driver() string     { return "rustfs" }
+// MakeBucket 创建桶（幂等：桶已存在时返回 nil）。
+//
+// 实现 objectx.BucketManager 可选能力。BucketClient 本身没有建桶入口，
+// 因此在干净启动的 rustfs 容器上直接 PutObject 必然失败
+// （"We encountered an internal error"），示例必须先调用本方法。
+func (c *ClientImpl) MakeBucket(ctx context.Context, bucket string) error {
+	ctx, span := c.tracer.Start(ctx, "object_store.make_bucket")
+	defer span.End()
+	span.SetAttributes(attribute.String("object_store.bucket", bucket))
+
+	if bucket == "" {
+		return fmt.Errorf("rustfs: make bucket: empty bucket name")
+	}
+	exists, err := c.client.BucketExists(ctx, bucket)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("rustfs: bucket exists check %s: %w", bucket, err)
+	}
+	if exists {
+		return nil
+	}
+	if err := c.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
+		span.RecordError(err)
+		c.logger.ErrorContext(ctx, "objectx/rustfs make bucket failed", logx.Err(err), logx.String("bucket", bucket))
+		return fmt.Errorf("rustfs: make bucket %s: %w", bucket, err)
+	}
+	c.logger.InfoContext(ctx, "objectx/rustfs bucket created", logx.String("bucket", bucket))
+	return nil
+}
+
+// HealthCheck 真实探活：列举桶（不需要桶预先存在，且不会写数据）。
+//
+// 修复前这里是 `return nil` —— 恒真的健康检查比没有更危险：服务已宕机时
+// 调用方仍会认为链路正常（示例里的 "health check passed" 是假绿）。
+func (c *ClientImpl) HealthCheck() error {
+	// HealthCheck 无 ctx 参数（接口契约），这里只能用独立超时控制，
+	// 避免服务端不可达时把调用方永久挂住。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := c.client.ListBuckets(ctx); err != nil {
+		return fmt.Errorf("rustfs: health check: %w", err)
+	}
+	return nil
+}
+
+func (c *ClientImpl) Close() error   { return nil }
+func (c *ClientImpl) Driver() string { return "rustfs" }
 
 func init() {
 	objectx.RegisterCreator("rustfs", func(cfg *objectx.Config) (objectx.BucketClient, error) {

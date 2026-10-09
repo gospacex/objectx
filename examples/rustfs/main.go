@@ -47,6 +47,18 @@ func main() {
 	bucketName := "test-bucket"
 	objectKey := "test-file.txt"
 
+	// BucketClient 本身没有建桶入口，干净启动的 rustfs 容器上直接 PutObject
+	// 会失败。支持 objectx.BucketManager 的驱动在这里幂等建桶。
+	if bm, ok := client.(objectx.BucketManager); ok {
+		if err := bm.MakeBucket(ctx, bucketName); err != nil {
+			logger.Fatal("make bucket failed", logx.Err(err))
+		}
+		logger.InfoContext(ctx, "bucket ready", logx.String("bucket", bucketName))
+	} else {
+		logger.WarnContext(ctx, "driver has no MakeBucket capability; bucket must pre-exist",
+			logx.String("driver", client.Driver()))
+	}
+
 	// 4. 上传对象
 	logger.InfoContext(ctx, "putting object", logx.String("key", objectKey))
 	content := []byte("Hello, RustFS! This is a test file for objectx.")

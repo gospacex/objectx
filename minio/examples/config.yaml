@@ -1,0 +1,17 @@
+# objectx/minio/examples: 最小探针示例配置
+#
+# 与 objectx/examples/minio 的完整示例（上传/下载/列举/预签名/删除）不同，
+# 这里只做 HealthCheck + Exists 两个只读探针，适合作为连通性冒烟。
+#
+# 对齐本机 docker 的 minio 容器（9000/9001），凭据以 minio 容器环境为准。
+objectx:
+  standalone:
+    - driver: minio
+      name: default
+      endpoint: "localhost:9000"
+      access_key: "minioadmin"
+      secret_key: "minioadmin123"
+      bucket: "test-bucket"
+      use_ssl: false
+      max_upload_size: 104857600
+      presigned_expiry: 24h

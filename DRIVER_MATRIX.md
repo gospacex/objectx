@@ -21,12 +21,25 @@
 | ListObjects | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | PresignedURL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Exists | ✅ | ✅ | ⚠️ HEAD | ✅ | ✅ | ✅ |
-| HealthCheck | ✅ noop | ✅ noop | ✅ noop | ✅ noop | ✅ noop | ✅ noop |
+| HealthCheck | ✅ 真探活¹ | ✅ 真探活¹ | ⚠️ noop² | ⚠️ noop² | ⚠️ noop² | ⚠️ noop² |
+| **MakeBucket**³ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Close | ✅ noop | ✅ noop | ✅ noop | ✅ noop | ✅ noop | ✅ noop |
 | Driver | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OTel tracing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 > ⚠️ 七牛 Kodo 无原生 `Exists` API，通过 HEAD 请求模拟
+>
+> ¹ **HealthCheck 曾恒返回 nil**（2026-10-09 修复，仅 minio/rustfs）。恒真的健康检查比没有更危险：
+> 服务已宕机时调用方仍认为链路正常，示例里的 "health check passed" 是假绿。现改为 `ListBuckets`
+> 真实探活（5s 超时，不需要桶预先存在也不写数据）。
+>
+> ² 四个云厂商驱动的 `HealthCheck` **仍为恒真占位**。它们需要真实 AK/SK 才能验证，本轮不具备
+> 实跑条件，**不擅自改写不可验证的代码**；调用方不应依赖这四个驱动的健康检查结果。
+>
+> ³ **`MakeBucket` 是可选能力**（`objectx.BucketManager`），不在 `BucketClient` 接口里 —— 并入会让
+> 6 个驱动全部编译失败，且云厂商建桶语义（区域/存储类型/权限）无法用同一签名安全表达。
+> `BucketClient` 没有建桶入口，因此在干净启动的 minio/rustfs 上直接 `PutObject` 必然失败；
+> 示例必须先走 `MakeBucket`（幂等，桶已存在返回 nil）。云厂商驱动需先在控制台手动建桶。
 
 ## SDK 版本与依赖
 
@@ -105,7 +118,7 @@
 | root 工厂 | ✅ | ✅ | —（无网络） | 2026-09-07 通过 |
 | middleware (Hertz) | ✅ | ✅ | —（无网络） | 2026-09-07 通过 |
 | minio | ✅ | ✅ 11 cases | docker `localhost:9000` | 2026-09-07 通过 |
-| rustfs | ✅ | ✅ 11 cases | docker `localhost:9010` | 2026-09-07 通过 |
+| rustfs | ✅ | ✅ 11 cases | docker `localhost:9010` | 2026-09-07 通过；2026-10-09 复验（见下） |
 | qiniu | ✅ | ⏳ 待联调 | `OBJECTX_TEST_QINIU_*` | — |
 | huaweiobs | ✅ | ⏳ 待联调 | `OBJECTX_TEST_HUAWEOBS_*` | — |
 | tencentcos | ✅ | ⏳ 待联调 | `OBJECTX_TEST_TENCENTCOS_*` | — |
@@ -131,3 +144,12 @@ Middleware 存储语义（2026-09-07 修复）：`Middleware` 原先仅 `c.Set("
 `RequestContext` 不实现 `context.Context`，引擎传给 handler 的 ctx 是独立存储），导致下游
 取不到客户端。修复为 `context.WithValue(ctx, …)` 后经 `c.Next(ctx)` 透传，同时保留 `c.Set`
 以支持 `RequestContext.Value` 直接访问。回归用例见 `middleware/hertz_test.go`。
+
+## 2026-10-09 复验记录
+
+- **建桶能力缺失**：`examples/rustfs` 在干净容器上必挂（`PutObject` → "We encountered an internal
+  error"），根因是 `BucketClient` 无建桶入口、桶不存在。补 `objectx.BucketManager` 可选能力
+  （minio/rustfs 实现）后，示例在全新实例上完整跑通（上传/下载/列举/预签名/删除/校验删除）。
+- **本机 9010 上的 `rustfs` 容器（非本仓库 compose 起的）处于坏状态**：连 `MakeBucket` 都返回内部
+  错误，裸 minio-go 同样失败，容器日志显示反复重启。**这不是驱动缺陷**——同一份代码指向新起的
+  容器（`HOST_PORT=9011 ./scripts/start.sh`）即可全程通过。若本机复现失败，先换端口起干净实例再判回归。

@@ -188,7 +188,44 @@ func (c *ClientImpl) Exists(ctx context.Context, bucket, key string) (bool, erro
 	return true, nil
 }
 
-func (c *ClientImpl) HealthCheck() error { return nil }
+// MakeBucket 创建桶（幂等：桶已存在时返回 nil）。
+// 实现 objectx.BucketManager 可选能力，语义同 rustfs 驱动，见接口注释。
+func (c *ClientImpl) MakeBucket(ctx context.Context, bucket string) error {
+	ctx, span := c.tracer.Start(ctx, "object_store.make_bucket")
+	defer span.End()
+	span.SetAttributes(attribute.String("object_store.bucket", bucket))
+
+	if bucket == "" {
+		return fmt.Errorf("minio: make bucket: empty bucket name")
+	}
+	exists, err := c.client.BucketExists(ctx, bucket)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("minio: bucket exists check %s: %w", bucket, err)
+	}
+	if exists {
+		return nil
+	}
+	if err := c.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
+		span.RecordError(err)
+		c.logger.ErrorContext(ctx, "objectx/minio make bucket failed", logx.Err(err), logx.String("bucket", bucket))
+		return fmt.Errorf("minio: make bucket %s: %w", bucket, err)
+	}
+	c.logger.InfoContext(ctx, "objectx/minio bucket created", logx.String("bucket", bucket))
+	return nil
+}
+
+// HealthCheck 真实探活：列举桶。
+// 修复前恒返回 nil（假绿），服务宕机时调用方无法感知。详见 rustfs 驱动同名注释。
+func (c *ClientImpl) HealthCheck() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := c.client.ListBuckets(ctx); err != nil {
+		return fmt.Errorf("minio: health check: %w", err)
+	}
+	return nil
+}
+
 func (c *ClientImpl) Close() error {
 	if c.ht != nil {
 		c.ht.CloseIdleConnections()
